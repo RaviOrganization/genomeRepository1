@@ -1,0 +1,74 @@
+import de.hybris.platform.core.PK;	
+import de.hybris.platform.servicelayer.search.FlexibleSearchQuery;
+import de.hybris.platform.servicelayer.search.SearchResult;
+import de.hybris.platform.core.model.user.CustomerModel;
+import java.lang.String;
+import java.lang.Exception;
+import java.util.Optional;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import com.loblaw.egrocery.intg.dto.ws.loyalty.EGroceryGetOfferRequest;
+import com.loblaw.egrocery.intg.dto.EGroceryEssentialData;
+import com.loblaw.egrocery.intg.constants.EgroceryintegrationConstants.IntegrationOperationsEnum;
+import com.loblaw.egrocery.intg.constants.EgroceryintegrationConstants.IntegrationServicesEnum;
+import com.loblaw.egrocery.intg.constants.EgroceryintegrationConstants.IntegrationStoreEnum;
+import com.loblaw.egrocery.intg.dto.ws.loyalty.EGroceryGetOfferResponse;
+import com.loblaw.egrocery.intg.exception.EGroceryIntegrationException;
+import com.loblaw.egrocery.intg.dto.ws.loyalty.offfer.EGroceryLoyaltyOffersDTO;
+import org.apache.commons.collections.CollectionUtils;
+import com.loblaw.egrocery.intg.dto.ws.loyalty.offfer.EGroceryYOffersDTO; 
+
+
+
+def customers = "abc@xyz.com"
+def customerUids= Arrays.asList(customers.split())
+
+customerUids.each {
+String idCus = it
+
+  final FlexibleSearchQuery findPKquery = new FlexibleSearchQuery("Select {pk} from {Customer} where {uid} LIKE (?id)");
+Map<String, Object> queryParamaters = new HashMap<String, String>();
+queryParamaters.put("id", idCus);
+findPKquery.setStart(0);
+findPKquery.setCount(1);
+findPKquery.addQueryParameters(queryParamaters);
+final SearchResult findPKresult = flexibleSearchService.search(findPKquery);
+CustomerModel cusModel = ((CustomerModel)findPKresult.getResult().get(0));
+String memberId = cusModel.getCustomerPcPlusMembership().getMembershipId();
+
+Optional<String> membershipId = memberId == null || memberId.isEmpty()
+    ? Optional.empty()
+    : Optional.of(memberId);
+ 
+EGroceryGetOfferRequest offerRequest = new EGroceryGetOfferRequest();
+		offerRequest.setAccountId(memberId);
+		// essentialData for the web service request
+		EGroceryEssentialData essentialData = new EGroceryEssentialData();
+		essentialData.setOperationName(IntegrationOperationsEnum.WS_MEMBERSHIP_GET_OFFERS);
+		essentialData.setServiceName(IntegrationServicesEnum.LOYALTY);
+		essentialData.setStoreName(IntegrationStoreEnum.GROCERY);
+		Optional<EGroceryGetOfferResponse> getOfferResponse = Optional.empty();
+		try {
+			getOfferResponse = Optional.ofNullable(wsExecutorService.execute(offerRequest, essentialData));
+			if (getOfferResponse.isPresent() && getOfferResponse.get().geteGroceryOfferTabDTO() != null
+			&& getOfferResponse.get().geteGroceryOfferTabDTO().geteGroceryYOffersDTO() != null) {
+			offers = getOfferResponse.get().geteGroceryOfferTabDTO().geteGroceryYOffersDTO();
+		}
+		} catch (EGroceryIntegrationException e) {
+			LOG.error("Error in getting offers for current PC Plus user [membershipId: " + membershipId + "]", e);
+		}
+
+		Set<String> offerIds = new HashSet<>();
+		if (CollectionUtils.isNotEmpty(offers)) {
+			for (EGroceryYOffersDTO offer : offers) {
+				offerIds.add(offer.getOfferTemplateId());
+			}
+		}
+pcPlusOfferDao.getActivePersonalizedPromotionsBasedOnPromotionIds(offerIds, new Date(), "loblaw");
+}
